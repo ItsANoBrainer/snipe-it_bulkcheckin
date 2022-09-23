@@ -1,0 +1,13 @@
+{
+  "name": "snipe-it_bulkcheckin",
+  "version": "1.0.0",
+  "description": "An application created with Node.JS to easily and checkin a bulk list of assets via a CSV file using the Snipe-IT REST API.",
+  "main": "main.js",
+  "author": "ItsANoBrainer",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^0.21.1",
+    "papaparse": "^5.3.0",
+    "prompt-sync": "^4.2.0"
+  }
+}

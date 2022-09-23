@@ -1,0 +1,9 @@
+{
+    "snipeitURL": "",
+    "apiKey": "",
+    "inputFile": "checkin.csv",
+    "verbose": true,
+    "allowPrompt": true,
+
+    "validTypes": ["id","asset_tag","serial_number"]
+}
