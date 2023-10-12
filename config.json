@@ -2,6 +2,7 @@
     "snipeitURL": "",
     "apiKey": "",
     "inputFile": "checkin.csv",
+    "batchSize": 100,
     "verbose": true,
     "allowPrompt": true,
 

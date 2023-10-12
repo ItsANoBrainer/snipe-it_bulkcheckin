@@ -35,7 +35,6 @@ async function main() {
         }
     });
 
-    prompt(`[Log] Press enter to finish...`)
     logLine("=")
 }
 
@@ -59,52 +58,95 @@ function prompt(msg) { if (Config.allowPrompt) doPrompt(msg) }
 async function startCheckinProcess(csvData, checkinKey) {
     const startTime = new Date().getTime()
 
-    let errors = {}
-    for (let i = 0; i < csvData.length; i++) {
-        const entry = csvData[i]
+    const { errors, successes } = await batchCheckin(csvData, checkinKey)
 
-        let assetID;
+    console.log('----------------------------------------------------------------------------------------------------')
+    console.log(`${successes}/${csvData.length} items were checked in.`)
+    console.log('----------------------------------------------------------------------------------------------------')
+    console.log(`The follow items had errors:`)
+
+    let finalErrors = []
+    for (const [key, value] of Object.entries(errors)) {
+        let errorString = `- ${key.replace('.', '')}: `;
+        errors[key].forEach((item, index) => {
+            errorString += item
+            if (Object.entries(errors[key]).length - 1 != index) {
+                errorString += ', '
+            }
+        })
+        finalErrors.push(errorString)
+        console.log(errorString);
+    }
+
+    fs.writeFileSync('errors.txt', finalErrors.join('\n'))
+
+    const endTime = new Date().getTime()
+    logLine("-")
+    log(`[Log] Completed in ${msToTimeLength(endTime - startTime)}`)
+    logLine("=")
+    prompt(`[Log] Press enter to finish...`)
+}
+
+async function batchCheckin(csvData, checkinKey) {
+    let batch = 0
+    let batchCount = Math.ceil(csvData.length / Config.batchSize)
+    let batchStart = 0
+    let batchEnd = Config.batchSize
+
+    let errors = {}
+    let successes = 0
+    let unfulfilled = 0
+    while (batch < batchCount) {
+        console.log(`Batch ${batch + 1}/${batchCount} | Devices ${batchStart + 1}-${Math.min(batchEnd, csvData.length)} of ${csvData.length}`)
+
+        const batchResults = await Promise.allSettled(csvData.slice(batchStart, batchEnd).map(async entry => {
+            return await processCheckin(checkinKey, entry)
+        }))
+
+        batchResults.forEach((result, index, array) => {
+            const value = result.value
+            if (result.status != "fulfilled") {
+                const entry = csvData[batchStart + index]
+                result.value = { id: entry.id, ['asset_tag']: entry['asset_tag'], status: 'error', message: 'Request was not fulfilled.' }
+                unfulfilled++
+            }
+
+            if (value.status == 'error') {
+                if (!errors[value['message']]) { errors[value['message']] = [] }
+                errors[value['message']].push(value.entry[value.checkinKey])
+            } else {
+                successes++
+            }
+        })
+
+        batch++
+        batchStart += Config.batchSize
+        batchEnd += Config.batchSize
+    }
+
+    return { errors: errors, successes: successes, unfulfilled: unfulfilled }
+}
+
+function processCheckin(checkinKey, entry) {
+    return new Promise(async resolve => {
         switch (checkinKey) {
-            case "id":
-                assetID = entry[checkinKey]
-                break;
             case "asset_tag":
-                assetID = await getAssetID(`bytag`, entry[checkinKey])
+                entry.id = await getAssetID(`bytag`, entry[checkinKey])
                 break;
             case "serial_number":
-                assetID = await getAssetID(`byserial`, entry[checkinKey])
+                entry.id = await getAssetID(`byserial`, entry[checkinKey])
                 break;
         }
 
         let assetCheckin;
-        if (assetID != "Not Found") assetCheckin = await checkinAssetID(parseInt(assetID), entry.note)
+        if (entry.id != "Not Found") assetCheckin = await checkinAssetID(parseInt(entry.id), entry.note)
         else assetCheckin = { status: "error", message: `${checkinKey} not found` }
 
-        if (assetCheckin.status == "error") {
-            if (!errors[assetCheckin["message"]]) { errors[assetCheckin["message"]] = [] }
-            errors[assetCheckin["message"]].push(entry[checkinKey])
-        }
-        log(`[Checkin] ${i + 1}/${csvData.length} | ID: ${assetCheckin["id"] || "Not Found"} | Asset Tag: ${assetCheckin["asset tag"] || "Not Found"} | Status: ${assetCheckin["status"]} | ${assetCheckin["message"]}`)
-    }
+        assetCheckin.checkinKey = checkinKey
+        assetCheckin.entry = entry
 
-    if(Object.entries(errors).length > 0) {
-        logLine("-")
-        log(`[Checkin] The follow items had errors:`)
-
-        for (const [key] of Object.entries(errors)) {
-            let errorString = `- ${key.replace(".", "")}: `;
-            errors[key].forEach((item, index) => {
-                errorString += item
-                if (Object.entries(errors[key]).length - 1 != index) { errorString += ", " }
-            })
-            log(errorString);
-        }
-    }
-
-
-    logLine("-")
-    log(`[Log] Completed in ${msToTimeLength(new Date().getTime() - startTime)}`)
-    logLine("=")
+        resolve(assetCheckin)
+    });
 }
 
 function checkinAssetID(id, note) {
